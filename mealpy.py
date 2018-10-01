@@ -1,9 +1,19 @@
 import getpass
 import json
 import requests
-import time
+from datetime import datetime
+from time import sleep
+import base64
+import sys
+from optparse import OptionParser
 
-from apscheduler.schedulers.blocking import BlockingScheduler
+# E-mail and password can be hard-coded here, otherwise prompt for them
+# Password should be base64 encoded, ie: base64.b64encode('password')
+# This is not even slightly secure and you probably shouldn't use it!
+MP_EMAIL = ''
+MP_PASS = ''
+
+cli_opts = None
 
 BASE_DOMAIN = 'secure.mealpal.com'
 BASE_URL = 'https://' + BASE_DOMAIN
@@ -21,6 +31,31 @@ HEADERS = {
     'Referer': BASE_URL + '/login',
     'Content-Type': 'application/json',
 }
+
+
+def parse_opt(args=sys.argv[1:]):
+    '''
+    Parse the provided options, return an options object
+    '''
+    global cli_opts
+    # Usage message
+    usage = """%prog [options]
+Script to make MealPal reservations
+"""
+    parser = OptionParser(usage=usage)
+    # supported options
+    parser.add_option("-r", "--restaurant", default=None, help="The name of the restaurant. This or meal name is required.")
+    parser.add_option("-m", "--meal", default=None, help="The name of the meal. This or restaurnt name is required.")
+    parser.add_option("-t", "--time", default="12:15pm-12:30pm", help="Reservation pickup time. Default is '12:15pm-12:30pm'")
+    parser.add_option("-s", "--sleep", default="00", help="Sleep until this clock minute. Default is 00")
+    parser.add_option("-c", "--city", default="New York City", help="City name. Default is New York City.")
+    parser.add_option("-d", "--dump", action="store_true", default=False, help="Dump the schedule to schedule-date.json")
+    (options, args) = parser.parse_args(args)
+    if not options.restaurant and not options.meal:
+        print "One of --restaurant or --meal is required"
+        parser.print_help()
+        sys.exit(5)
+    cli_opts = options
 
 
 class MealPal(object):
@@ -56,6 +91,14 @@ class MealPal(object):
         r = requests.get(
             MENU_URL % city_id, headers=self.headers, cookies=self.cookies)
         self.schedules = r.json()['schedules']
+        # Write schedule to file if --dump
+        if cli_opts.dump:
+            dt_now = datetime.now()
+            y, m, d = dt_now.year, dt_now.month, dt_now.day
+            sched_filename = "schedules_{y}_{m}_{d}.json".format(y=y,m=m,d=d)
+            print("Writing schedules to " + sched_filename)
+            with open(sched_filename, 'w') as sched_file:
+                json.dump(self.schedules, sched_file)
         return self.schedules
 
     def get_schedule_by_restaurant_name(
@@ -80,11 +123,21 @@ class MealPal(object):
             self.cancel_current_meal()
 
         if meal_name:
-            schedule_id = self.get_schedule_by_meal_name(
-                meal_name, city_name, city_id)['id']
+            try:
+                schedule_id = self.get_schedule_by_meal_name(
+                    meal_name, city_name, city_id)['id']
+            except IndexError:
+                schedule_id = None
         else:
-            schedule_id = self.get_schedule_by_restaurant_name(
-                restaurant_name, city_name, city_id)['id']
+            try:
+                schedule_id = self.get_schedule_by_restaurant_name(
+                    restaurant_name, city_name, city_id)['id']
+            except IndexError:
+                schedule_id = None
+
+        if not schedule_id:
+            print("Error, could not find a schedule for this meal or restaurant. Check your spelling?")
+            sys.exit(7)
 
         reserve_data = {
             'quantity': 1,
@@ -93,8 +146,9 @@ class MealPal(object):
             'source': 'Web'
         }
 
+        # return 200
         r = requests.post(
-            RESERVATION_URL, data=json.dumps(reserve_data),
+            RESERVATION_URL, dataaction="store_true".dumps(reserve_data),
             headers=self.headers, cookies=self.cookies)
         return r.status_code
 
@@ -106,41 +160,62 @@ class MealPal(object):
     def cancel_current_meal(self):
         pass
 
-scheduler = BlockingScheduler()
-print "Enter email: "
-email = raw_input()
-print "Enter password: "
-password = getpass.getpass()
 
-
-@scheduler.scheduled_job('cron', hour=16, minute=59, second=58)
-def execute_reserve_meal():
+def execute_reserve_meal(email, password):
     mp = MealPal()
 
     # Try to login
-    while True:
-        status_code = mp.login(email, password)
-        if status_code == 200:
-            print 'Logged In!'
-            break
-        else:
-            print 'Login Failed! Retrying...'
+    status_code = mp.login(email, password)
+    if status_code == 200:
+        print('Successful login to MealPal')
+    else:
+        print('Failed to login to MealPal. Check user/pass and try again.')
+        sys.exit(6)
 
-    # Once logged in, try to reserve meal
-    while True:
+    # Sleep until the correct time
+    sleep_minute = int(cli_opts.sleep)
+    now_minute = datetime.now().minute
+    print('Sleeping until minute {s}, current minute is {n}...'.format(s=sleep_minute, n=now_minute))
+    while now_minute != sleep_minute:
+        sleep(0.01)
+        now_minute = datetime.now().minute
+    print('Waking up to make reservation...')
+
+    # Try to reserve meal
+    count = 0
+    while count <= 5:
         try:
             status_code = mp.reserve_meal(
-                '12:15pm-12:30pm',
-                restaurant_name='Coast Poke Counter - Battery St.',
-                city_name='San Francisco')
+                cli_opts.time,
+                restaurant_name=cli_opts.restaurant,
+                meal_name=cli_opts.meal,
+                city_name=cli_opts.city)
             if status_code == 200:
-                print 'Reservation success!'
-                print 'Leave this script running to reschedule again the next day!'
-                return
-            else:
-                print 'Reservation error, retrying!'
-        except IndexError:
-            print "Retrying..."
-            time.sleep(0.05)
+                print('Reservation success!')
+                sys.exit(0)
+        except IOError:
+            pass
+        print('Reservation error, retry #{n}/5!'.format(n=count))
+        count += 1
+        sleep(0.1)
 
-scheduler.start()
+
+def main(args):
+    # Parse the options/arguments from the CLI, store them in cli_opts
+    parse_opt(args)
+    # Do we need a user/pass?
+    if not MP_EMAIL or not MP_PASS:
+        print "Enter email: "
+        email = raw_input()
+        print "Enter password: "
+        password = getpass.getpass()
+    else:
+        email = MP_EMAIL
+        password = base64.b64decode(MP_PASS)
+    # Start our meal reservation
+    execute_reserve_meal(email, password)
+
+
+if __name__ == "__main__":
+    requests.packages.urllib3.disable_warnings()
+    main(sys.argv[1:])
