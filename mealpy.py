@@ -49,7 +49,7 @@ Script to make MealPal reservations
     parser.add_option("-t", "--time", default="12:15pm-12:30pm", help="Reservation pickup time. Default is '12:15pm-12:30pm'")
     parser.add_option("-s", "--sleep", default="00", help="Sleep until this clock minute. Default is 00")
     parser.add_option("-c", "--city", default="New York City", help="City name. Default is New York City.")
-    parser.add_option("-d", "--dump", action="store_true", default=False, help="Dump the schedule to schedule-date.json")
+    parser.add_option("-d", "--dump", action="store_true", default=False, help="Dump the schedule to a JSON file")
     (options, args) = parser.parse_args(args)
     if not options.restaurant and not options.meal:
         print "One of --restaurant or --meal is required"
@@ -193,7 +193,7 @@ def execute_reserve_meal(email, password):
             if status_code == 200:
                 print('Reservation success!')
                 sys.exit(0)
-        except IOError:
+        except IndexError:
             pass
         print('Reservation error, retry #{n}/5!'.format(n=count))
         count += 1
