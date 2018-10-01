@@ -193,7 +193,8 @@ def execute_reserve_meal(email, password):
             if status_code == 200:
                 print('Reservation success!')
                 sys.exit(0)
-        except IndexError:
+        # We catch all exceptions because we want to retry under all circumstances
+        except Exception:
             pass
         print('Reservation error, retry #{n}/5!'.format(n=count))
         count += 1
