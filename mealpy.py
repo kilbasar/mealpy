@@ -148,7 +148,7 @@ class MealPal(object):
 
         # return 200
         r = requests.post(
-            RESERVATION_URL, dataaction="store_true".dumps(reserve_data),
+            RESERVATION_URL, data=json.dumps(reserve_data),
             headers=self.headers, cookies=self.cookies)
         return r.status_code
 
