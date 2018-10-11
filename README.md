@@ -11,6 +11,22 @@ By default it will sleep until the clock minute is 00, so generally you should r
 
 Command line options let you specify the restaurant or meal to reserve. Other options are available, with sane defaults.
 
+```
+Options:
+  -h, --help            show this help message and exit
+  -r RESTAURANT, --restaurant=RESTAURANT
+                        The name of the restaurant. This or meal name is
+                        required.
+  -m MEAL, --meal=MEAL  The name of the meal. This or restaurnt name is
+                        required.
+  -t TIME, --time=TIME  Reservation pickup time. Default is '12:15pm-12:30pm'
+  -s SLEEP, --sleep=SLEEP
+                        Sleep until this clock minute. Default is 00, ie run
+                        at the next hour (XX:00)
+  -c CITY, --city=CITY  City name. Default is New York City.
+  -d, --dump            Dump the schedule to a JSON file
+  ```
+
 ## Notes
 This is a personal fork/mod of https://github.com/edmundmok/mealpy
 
